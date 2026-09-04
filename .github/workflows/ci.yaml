@@ -1,0 +1,60 @@
+name: CI
+
+# ATENÇÃO: este pipeline está desarmado de propósito.
+#
+# Num serviço de verdade, os gatilhos são estes:
+#
+#   on:
+#     push:
+#       branches: [main]
+#     pull_request:
+#     workflow_dispatch:
+#
+# Aqui ele roda **só quando alguém clica**, porque este é um repositório de estudo e os
+# minutos de execução são compartilhados com projetos reais.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build e testes
+    runs-on: ubuntu-latest
+    # Folgado: as suítes desta série que sobem Kafka ou Schema Registry via Testcontainers
+    # levam minutos só para o contêiner ficar de pé.
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # `test` e não `verify`: este repositório não separa teste unitário de integração em
+      # fases distintas, nem tem limite de cobertura ou SBOM. Quem faz isso é o
+      # `java-template-servico`, o esqueleto desta série — e forçar a estrutura dele para
+      # trás significaria reescrever o projeto, não acrescentar CI.
+      #
+      # Onde a suíte sobe contêineres via Testcontainers, o runner do GitHub já traz Docker.
+      - name: mvn test
+        run: ./mvnw -B test
+
+      # Sobe sempre, inclusive quando o build falhou: é justamente aí que alguém quer olhar.
+      - name: Relatórios de teste
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: '**/target/surefire-reports/'
+          retention-days: 14
+          if-no-files-found: ignore
